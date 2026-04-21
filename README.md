@@ -10,8 +10,13 @@ Streamlit-приложение с рекомендательными сцена�
 - рекомендации по популярности;
 - top-rated рекомендации с минимальным порогом числа оценок;
 - поиск похожих фильмов через content-based cosine similarity;
+- персональные рекомендации по `userId`;
+- item-item collaborative filtering на user-item матрице;
 - страница с обзором датасета;
 - страница с offline-оценкой popularity baseline;
+- сравнение popularity baseline и item-item collaborative filtering;
+- графики активности пользователей, жанров и связи рейтинга с популярностью фильмов;
+- кривые `hit_rate@k`, `precision@k`, `coverage@k`, `novelty@k`;
 - подготовка TF-IDF артефактов для content-based подхода;
 - тесты с coverage-отчетом.
 
@@ -53,6 +58,7 @@ http://localhost:8501
 │   └── evaluate.py
 ├── src/
 │   ├── analytics.py
+│   ├── collaborative.py
 │   ├── data_loader.py
 │   ├── evaluate.py
 │   ├── preprocess.py
@@ -87,10 +93,11 @@ models/tfidf_matrix.npz
 python scripts/evaluate.py
 ```
 
-Команда считает `hit_rate@10` и `precision@10` для popularity baseline и сохраняет результат:
+Команда считает `hit_rate@10` и `precision@10` для `popularity_baseline` и `item_item_cf`, затем сохраняет результат:
 
 ```text
 models/metrics.json
+models/metrics_by_k.csv
 ```
 
 Посмотреть сохраненный JSON:
@@ -113,8 +120,6 @@ pytest
 
 ## Следующие улучшения
 
-- добавить персональные рекомендации по `userId`;
-- добавить item-item collaborative filtering;
 - сравнить несколько рекомендателей в UI;
 - подготовить Docker-окружение для запуска на сервере;
 - добавить PySpark/Airflow как отдельные инженерные компоненты после стабилизации MVP.

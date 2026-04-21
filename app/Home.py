@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.collaborative import get_item_item_recommendations
 from src.data_loader import MovieLensData, load_movielens
 from src.recommend import (
     get_popular_movies,
@@ -36,11 +37,12 @@ def format_table(df: pd.DataFrame) -> pd.DataFrame:
         "rating_count": "Оценок",
         "mean_rating": "Средняя оценка",
         "similarity": "Сходство",
+        "cf_score": "CF score",
     }
     result = df[[column for column in visible_columns if column in df.columns]].rename(
         columns=visible_columns
     )
-    for column in ("Средняя оценка", "Сходство"):
+    for column in ("Средняя оценка", "Сходство", "CF score"):
         if column in result.columns:
             result[column] = result[column].round(3)
     return result
@@ -68,7 +70,7 @@ with st.sidebar:
     st.header("Настройки")
     mode = st.radio(
         "Сценарий",
-        ["Популярные фильмы", "Top-rated", "Похожие фильмы"],
+        ["Популярные фильмы", "Top-rated", "Похожие фильмы", "Персональные рекомендации"],
     )
     limit = st.slider("Количество рекомендаций", min_value=5, max_value=30, value=10, step=5)
     min_ratings = st.slider(
@@ -77,7 +79,15 @@ with st.sidebar:
         max_value=300,
         value=50,
         step=5,
-        disabled=mode == "Похожие фильмы",
+        disabled=mode in {"Похожие фильмы", "Персональные рекомендации"},
+    )
+    min_positive_rating = st.slider(
+        "Порог понравившихся",
+        min_value=0.5,
+        max_value=5.0,
+        value=4.0,
+        step=0.5,
+        disabled=mode != "Персональные рекомендации",
     )
 
 if mode == "Популярные фильмы":
@@ -91,6 +101,44 @@ elif mode == "Top-rated":
     st.dataframe(format_table(recommendations), use_container_width=True, hide_index=True)
 
 else:
+    if mode == "Персональные рекомендации":
+        st.subheader("Персональные рекомендации")
+        user_ids = sorted(ratings["userId"].astype(int).unique().tolist())
+        selected_user_id = st.selectbox(
+            "Выберите пользователя",
+            user_ids,
+            format_func=lambda value: f"User {value}",
+        )
+
+        recommendations = get_item_item_recommendations(
+            selected_user_id,
+            movies,
+            ratings,
+            limit=limit,
+            min_positive_rating=min_positive_rating,
+        )
+
+        if recommendations.empty:
+            st.warning("Для пользователя недостаточно положительных оценок при выбранном пороге.")
+        else:
+            st.dataframe(format_table(recommendations), use_container_width=True, hide_index=True)
+
+        with st.expander("История пользователя"):
+            history = (
+                ratings[ratings["userId"].astype(int) == int(selected_user_id)]
+                .merge(movies, on="movieId", how="left")
+                .sort_values(["rating", "title"], ascending=[False, True])
+                .head(20)
+            )
+            st.dataframe(
+                history[["title", "genres", "rating"]].rename(
+                    columns={"title": "Фильм", "genres": "Жанры", "rating": "Оценка"}
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+        st.stop()
+
     st.subheader("Похожие фильмы")
     movie_options = movies.sort_values("title")[["movieId", "title"]].reset_index(drop=True)
     selected_title = st.selectbox("Выберите фильм", movie_options["title"].tolist(), index=0)
