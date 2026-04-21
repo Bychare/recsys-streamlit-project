@@ -1,3 +1,5 @@
+"""Тесты аналитических функций для страниц Streamlit."""
+
 from __future__ import annotations
 
 import json

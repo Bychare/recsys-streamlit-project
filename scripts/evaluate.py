@@ -1,3 +1,9 @@
+"""CLI-команда для offline-оценки рекомендателей.
+
+Запуск:
+    python scripts/evaluate.py
+"""
+
 from __future__ import annotations
 
 import json
@@ -6,6 +12,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
+    # Нужен для импортов из `src`, если скрипт запускают напрямую.
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.data_loader import load_movielens
@@ -14,6 +21,7 @@ from src.preprocess import MODELS_DIR
 
 
 def main() -> None:
+    """Считает метрики моделей и сохраняет JSON/CSV в `models/`."""
     data = load_movielens()
     metrics = compare_recommenders(data.movies, data.ratings, k=10, max_cf_users=100)
     curves = evaluate_at_k_values(

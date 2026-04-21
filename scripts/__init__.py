@@ -1,1 +1,1 @@
-"""Command-line entry points for project workflows."""
+"""CLI-скрипты для воспроизводимых проектных команд."""

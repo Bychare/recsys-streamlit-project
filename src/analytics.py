@@ -1,3 +1,9 @@
+"""Аналитические срезы для страниц Streamlit.
+
+Функции из этого файла не обучают модели. Они готовят компактные таблицы для
+графиков, метрик и статусов артефактов.
+"""
+
 from __future__ import annotations
 
 import json
@@ -11,6 +17,8 @@ from src.data_loader import PROJECT_ROOT
 
 @dataclass(frozen=True)
 class DatasetSummary:
+    """Главные числа датасета, которые показываются в верхних карточках."""
+
     movie_count: int
     rating_count: int
     user_count: int
@@ -21,6 +29,8 @@ class DatasetSummary:
 
 @dataclass(frozen=True)
 class LongTailSummary:
+    """Краткое описание head/tail распределения фильмов по числу оценок."""
+
     movie_count: int
     head_movie_count: int
     tail_movie_count: int
@@ -54,6 +64,7 @@ ACTIVITY_BUCKETS = [
 
 
 def _display_path(path: Path) -> str:
+    """Показывает путь относительно проекта, если это возможно."""
     if not path.is_absolute():
         return str(path)
     try:
@@ -63,6 +74,7 @@ def _display_path(path: Path) -> str:
 
 
 def get_dataset_summary(movies: pd.DataFrame, ratings: pd.DataFrame) -> DatasetSummary:
+    """Собирает базовую сводку: размеры таблиц, жанры и разреженность матрицы."""
     movie_count = int(movies["movieId"].nunique())
     rating_count = int(len(ratings))
     user_count = int(ratings["userId"].nunique())
@@ -81,6 +93,7 @@ def get_dataset_summary(movies: pd.DataFrame, ratings: pd.DataFrame) -> DatasetS
 
 
 def get_rating_distribution(ratings: pd.DataFrame) -> pd.DataFrame:
+    """Считает, сколько раз встречается каждая оценка от 0.5 до 5.0."""
     return (
         ratings.groupby("rating", as_index=False)
         .agg(rating_count=("movieId", "size"))
@@ -90,6 +103,7 @@ def get_rating_distribution(ratings: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_genre_counts(movies: pd.DataFrame, limit: int | None = None) -> pd.DataFrame:
+    """Считает, сколько фильмов относится к каждому жанру."""
     genres = (
         movies["genres"]
         .fillna("(no genres listed)")
@@ -110,6 +124,7 @@ def get_genre_counts(movies: pd.DataFrame, limit: int | None = None) -> pd.DataF
 
 
 def get_rating_activity_by_year(ratings: pd.DataFrame) -> pd.DataFrame:
+    """Группирует оценки по годам на основе unix timestamp."""
     if "timestamp" not in ratings.columns:
         return pd.DataFrame(columns=["year", "rating_count"])
 
@@ -124,6 +139,7 @@ def get_rating_activity_by_year(ratings: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_top_users(ratings: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
+    """Возвращает пользователей с самым большим числом оценок."""
     return (
         ratings.groupby("userId", as_index=False)
         .agg(rating_count=("movieId", "size"), mean_rating=("rating", "mean"))
@@ -134,6 +150,7 @@ def get_top_users(ratings: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
 
 
 def get_user_activity_distribution(ratings: pd.DataFrame) -> pd.DataFrame:
+    """Считает активность каждого пользователя."""
     return (
         ratings.groupby("userId", as_index=False)
         .agg(rating_count=("movieId", "size"))
@@ -143,6 +160,7 @@ def get_user_activity_distribution(ratings: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_movie_activity_distribution(ratings: pd.DataFrame) -> pd.DataFrame:
+    """Считает популярность и среднюю оценку каждого фильма."""
     return (
         ratings.groupby("movieId", as_index=False)
         .agg(rating_count=("userId", "size"), mean_rating=("rating", "mean"))
@@ -152,6 +170,11 @@ def get_movie_activity_distribution(ratings: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_movie_popularity_curve(ratings: pd.DataFrame) -> pd.DataFrame:
+    """Строит накопительную кривую популярности фильмов.
+
+    Сейчас график не используется на странице, но функция полезна для дальнейшей
+    long-tail аналитики.
+    """
     movie_activity = get_movie_activity_distribution(ratings)
     if movie_activity.empty:
         return pd.DataFrame(columns=["movie_share", "rating_share"])
@@ -169,6 +192,7 @@ def get_movie_rating_scatter(
     ratings: pd.DataFrame,
     min_ratings: int = 5,
 ) -> pd.DataFrame:
+    """Готовит точки для графика `средний рейтинг vs число оценок`."""
     if min_ratings < 1:
         raise ValueError("min_ratings must be positive")
 
@@ -183,6 +207,7 @@ def get_movie_rating_scatter(
 
 
 def _activity_bucket(value: int) -> tuple[int, str]:
+    """Преобразует число оценок в человекочитаемый bucket."""
     for index, (left, right, label) in enumerate(ACTIVITY_BUCKETS):
         if left <= value <= right:
             return index, label
@@ -194,6 +219,7 @@ def get_activity_histogram(
     value_column: str = "rating_count",
     bins: int = 10,
 ) -> pd.DataFrame:
+    """Группирует активности в фиксированные bucket'ы для читаемой оси X."""
     if bins < 1:
         raise ValueError("bins must be positive")
     if activity.empty:
@@ -214,6 +240,7 @@ def get_activity_histogram(
 
 
 def get_genre_rating_stats(movies: pd.DataFrame, ratings: pd.DataFrame, min_ratings: int = 20) -> pd.DataFrame:
+    """Считает средний рейтинг по жанрам с отсечением по числу оценок."""
     movie_genres = movies[["movieId", "genres"]].copy()
     movie_genres["genre"] = movie_genres["genres"].fillna("(no genres listed)").str.split("|")
     movie_genres = movie_genres.explode("genre")
@@ -231,6 +258,7 @@ def get_genre_rating_stats(movies: pd.DataFrame, ratings: pd.DataFrame, min_rati
 
 
 def get_long_tail_summary(ratings: pd.DataFrame, head_quantile: float = 0.8) -> LongTailSummary:
+    """Оценивает, какая часть фильмов относится к head и tail."""
     if not 0 < head_quantile < 1:
         raise ValueError("head_quantile must be between 0 and 1")
 
@@ -253,6 +281,7 @@ def get_long_tail_summary(ratings: pd.DataFrame, head_quantile: float = 0.8) -> 
 
 
 def get_artifact_status(paths: dict[str, Path] | None = None) -> pd.DataFrame:
+    """Проверяет, какие локальные артефакты уже собраны."""
     paths = paths or DEFAULT_ARTIFACT_PATHS
     rows = []
     for name, path in paths.items():
@@ -269,6 +298,7 @@ def get_artifact_status(paths: dict[str, Path] | None = None) -> pd.DataFrame:
 
 
 def load_metrics(path: Path | None = None) -> dict[str, float | int] | None:
+    """Загружает JSON с последними offline-метриками, если файл существует."""
     metrics_path = path or DEFAULT_ARTIFACT_PATHS["metrics"]
     if not metrics_path.exists():
         return None
@@ -276,6 +306,7 @@ def load_metrics(path: Path | None = None) -> dict[str, float | int] | None:
 
 
 def load_metrics_by_k(path: Path | None = None) -> pd.DataFrame:
+    """Загружает CSV с кривыми качества по K."""
     metrics_path = path or DEFAULT_ARTIFACT_PATHS["metrics_by_k"]
     if not metrics_path.exists():
         return pd.DataFrame()

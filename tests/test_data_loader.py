@@ -1,3 +1,5 @@
+"""Тесты загрузки MovieLens и безопасной работы с архивом."""
+
 from __future__ import annotations
 
 import pandas as pd

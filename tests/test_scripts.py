@@ -1,3 +1,5 @@
+"""Тесты CLI-скриптов без реального скачивания данных."""
+
 from __future__ import annotations
 
 import json

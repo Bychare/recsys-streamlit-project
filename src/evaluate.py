@@ -1,3 +1,9 @@
+"""Offline-оценка рекомендательных моделей.
+
+Здесь используются простые, но воспроизводимые метрики: hit_rate, precision,
+coverage и novelty. Оценка сделана через leave-one-out split по пользователям.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,16 +19,20 @@ from src.recommend import get_popular_movies
 
 @dataclass(frozen=True)
 class LeaveOneOutSplit:
+    """Train/test разбиение: последняя оценка пользователя уходит в test."""
+
     train: pd.DataFrame
     test: pd.DataFrame
 
 
 def leave_one_out_split(ratings: pd.DataFrame, min_user_ratings: int = 2) -> LeaveOneOutSplit:
+    """Оставляет по одной последней оценке каждого подходящего пользователя для test."""
     if min_user_ratings < 2:
         raise ValueError("min_user_ratings must be at least 2")
 
     ratings_ordered = ratings.copy()
     ratings_ordered["_row_order"] = range(len(ratings_ordered))
+    # Если timestamp есть, считаем последней самую позднюю оценку; иначе сохраняем порядок строк.
     sort_columns = ["userId", "timestamp"] if "timestamp" in ratings_ordered.columns else ["userId"]
     sort_columns.append("_row_order")
     ratings_ordered = ratings_ordered.sort_values(sort_columns)
@@ -41,6 +51,7 @@ def _user_recommendations(
     seen_movie_ids: set[int],
     k: int,
 ) -> list[int]:
+    """Берет первые K фильмов, которые пользователь еще не видел."""
     return [movie_id for movie_id in ranked_movie_ids if movie_id not in seen_movie_ids][:k]
 
 
@@ -53,6 +64,7 @@ def _metrics_result(
     all_movie_count: int = 0,
     movie_popularity: dict[int, int] | None = None,
 ) -> dict[str, float | int]:
+    """Собирает общую форму ответа для всех моделей."""
     recommended_movie_ids = recommended_movie_ids or set()
     coverage = len(recommended_movie_ids) / all_movie_count if all_movie_count else 0.0
     if recommended_movie_ids and movie_popularity:
@@ -89,6 +101,7 @@ def evaluate_popularity_baseline(
     min_user_ratings: int = 2,
     min_movie_ratings: int = 1,
 ) -> dict[str, float | int]:
+    """Оценивает baseline, который рекомендует глобально популярные фильмы."""
     if k < 1:
         raise ValueError("k must be positive")
 
@@ -141,6 +154,7 @@ def evaluate_item_item_cf(
     min_positive_rating: float = 4.0,
     max_users: int | None = 100,
 ) -> dict[str, float | int]:
+    """Оценивает item-item collaborative filtering на leave-one-out split."""
     if k < 1:
         raise ValueError("k must be positive")
     if max_users is not None and max_users < 1:
@@ -149,6 +163,7 @@ def evaluate_item_item_cf(
     split = leave_one_out_split(ratings, min_user_ratings=min_user_ratings)
     test = split.test.sort_values("userId").reset_index(drop=True)
     if max_users is not None:
+        # CF дороже popularity baseline, поэтому в UI и CLI можно ограничить число пользователей.
         test = test.head(max_users)
 
     if test.empty:
@@ -206,6 +221,7 @@ def compare_recommenders(
     min_positive_rating: float = 4.0,
     max_cf_users: int | None = 100,
 ) -> dict[str, dict[str, float | int]]:
+    """Считает метрики сразу для двух моделей, чтобы их удобно сравнивать."""
     return {
         "popularity_baseline": evaluate_popularity_baseline(
             movies,
@@ -234,6 +250,7 @@ def evaluate_at_k_values(
     min_positive_rating: float = 4.0,
     max_cf_users: int | None = 100,
 ) -> pd.DataFrame:
+    """Строит таблицу метрик для нескольких K, из нее рисуются кривые в UI."""
     rows = []
     for k in k_values:
         metrics_by_model = compare_recommenders(

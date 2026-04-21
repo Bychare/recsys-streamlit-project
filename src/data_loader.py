@@ -1,3 +1,9 @@
+"""Загрузка MovieLens и подготовка локальных папок с данными.
+
+Модуль отвечает только за то, чтобы датасет оказался на диске и был прочитан
+в pandas DataFrame. ML-логика и аналитика вынесены в другие файлы.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,16 +26,20 @@ MOVIELENS_DIR = RAW_DIR / "ml-latest-small"
 
 @dataclass(frozen=True)
 class MovieLensData:
+    """Контейнер для двух основных таблиц MovieLens."""
+
     movies: pd.DataFrame
     ratings: pd.DataFrame
 
 
 def ensure_data_dirs() -> None:
+    """Создает папки для сырых и обработанных данных, если их еще нет."""
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _safe_extract(zip_file: ZipFile, target_dir: Path) -> None:
+    """Распаковывает архив и защищает от path traversal внутри zip-файла."""
     target_dir = target_dir.resolve()
     for member in zip_file.infolist():
         member_path = (target_dir / member.filename).resolve()
@@ -39,6 +49,7 @@ def _safe_extract(zip_file: ZipFile, target_dir: Path) -> None:
 
 
 def download_movielens(force: bool = False) -> Path:
+    """Скачивает архив MovieLens, если его еще нет локально."""
     ensure_data_dirs()
     if force or not MOVIELENS_ZIP.exists():
         urlretrieve(MOVIELENS_URL, MOVIELENS_ZIP)
@@ -46,6 +57,7 @@ def download_movielens(force: bool = False) -> Path:
 
 
 def prepare_movielens(force_download: bool = False) -> Path:
+    """Гарантирует, что архив скачан и распакован в `data/raw`."""
     ensure_data_dirs()
     if MOVIELENS_DIR.exists() and not force_download:
         return MOVIELENS_DIR
@@ -57,6 +69,7 @@ def prepare_movielens(force_download: bool = False) -> Path:
 
 
 def load_movielens(force_download: bool = False) -> MovieLensData:
+    """Читает `movies.csv` и `ratings.csv` из подготовленного MovieLens."""
     dataset_dir = prepare_movielens(force_download=force_download)
     movies = pd.read_csv(dataset_dir / "movies.csv")
     ratings = pd.read_csv(dataset_dir / "ratings.csv")

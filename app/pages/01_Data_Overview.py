@@ -1,3 +1,10 @@
+"""Страница с обзором MovieLens.
+
+Здесь нет моделирования: только быстрый анализ датасета, который помогает понять,
+насколько разрежены оценки, какие жанры встречаются чаще и почему популярность
+фильма надо учитывать вместе со средней оценкой.
+"""
+
 from __future__ import annotations
 
 import sys
@@ -6,6 +13,8 @@ from pathlib import Path
 import altair as alt
 import streamlit as st
 
+# У страниц Streamlit та же проблема с импортами, что и у Home.py:
+# файл лежит глубже в `app/pages`, поэтому явно добавляем корень проекта.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -31,6 +40,7 @@ st.set_page_config(page_title="Data Overview", layout="wide")
 
 @st.cache_data(show_spinner="Загружаем MovieLens...")
 def get_data() -> MovieLensData:
+    """Кешируем датасет, чтобы переключение страниц не перечитывало CSV заново."""
     return load_movielens()
 
 
@@ -49,6 +59,8 @@ metric_3.metric("Пользователей", f"{summary.user_count:,}".replace(
 metric_4.metric("Sparsity", f"{summary.sparsity:.2%}")
 
 tail_summary = get_long_tail_summary(ratings)
+# Head/tail здесь считается по числу оценок у фильма: head — наиболее заметные фильмы,
+# tail — длинный хвост фильмов с меньшей пользовательской активностью.
 tail_1, tail_2, tail_3, tail_4 = st.columns(4)
 tail_1.metric("Head фильмов", f"{tail_summary.head_movie_count:,}".replace(",", " "))
 tail_2.metric("Tail фильмов", f"{tail_summary.tail_movie_count:,}".replace(",", " "))
@@ -66,6 +78,7 @@ with chart_right:
     st.subheader("Доля топ-жанров")
     st.caption("Donut chart показывает долю жанровых меток среди 12 самых частых жанров.")
     genre_counts = get_genre_counts(movies, limit=12)
+    # Donut хорошо подходит именно для долей: это не рейтинг жанров, а структура каталога.
     genre_pie = (
         alt.Chart(genre_counts)
         .mark_arc(innerRadius=55)
@@ -88,6 +101,7 @@ with activity_left:
     st.caption("Ось X: диапазон числа оценок на одного пользователя. Ось Y: сколько пользователей в этом диапазоне.")
     user_activity = get_user_activity_distribution(ratings)
     user_activity_hist = get_activity_histogram(user_activity, bins=12)
+    # Altair нужен здесь, чтобы явно зафиксировать порядок bucket'ов на оси X.
     user_activity_chart = (
         alt.Chart(user_activity_hist)
         .mark_bar()
@@ -106,6 +120,7 @@ with activity_right:
     st.subheader("Рейтинг vs популярность")
     st.caption("Каждая точка — фильм. X: число оценок. Y: средняя оценка. Видно, какие оценки надежнее.")
     rating_scatter = get_movie_rating_scatter(movies, ratings, min_ratings=5)
+    # Логарифмическая шкала по X сжимает очень популярные фильмы и оставляет видимым long-tail.
     rating_scatter_chart = (
         alt.Chart(rating_scatter)
         .mark_circle(opacity=0.55)
@@ -134,6 +149,7 @@ with trend_left:
 with trend_right:
     st.subheader("Средний рейтинг по жанрам")
     genre_rating_stats = get_genre_rating_stats(movies, ratings, min_ratings=100)
+    # Горизонтальный bar chart читабельнее, когда категорий много и подписи длинные.
     genre_rating_chart = (
         alt.Chart(genre_rating_stats)
         .mark_bar()

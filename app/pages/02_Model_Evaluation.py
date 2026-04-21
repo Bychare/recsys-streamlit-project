@@ -1,3 +1,9 @@
+"""Страница offline-оценки рекомендателей.
+
+На этой странице сравниваются простая популярность и item-item collaborative
+filtering. Метрики можно пересчитать из UI, после чего они сохраняются в `models/`.
+"""
+
 from __future__ import annotations
 
 import json
@@ -7,6 +13,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+# Добавляем корень проекта, чтобы страница из `app/pages` могла импортировать `src`.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -22,11 +29,14 @@ st.set_page_config(page_title="Model Evaluation", layout="wide")
 
 @st.cache_data(show_spinner="Загружаем MovieLens...")
 def get_data() -> MovieLensData:
+    """Загружает датасет один раз для всех пересчетов на странице."""
     return load_movielens()
 
 
 def metrics_to_dataframe(metrics: dict) -> pd.DataFrame:
+    """Приводит JSON с метриками к таблице, удобной для Streamlit."""
     if "hit_rate" in metrics:
+        # Поддерживаем старый формат metrics.json, где была только одна модель.
         rows = [{"model": "popularity_baseline", **metrics}]
     else:
         rows = [{"model": model_name, **model_metrics} for model_name, model_metrics in metrics.items()]
@@ -56,10 +66,12 @@ def metrics_to_dataframe(metrics: dict) -> pd.DataFrame:
 
 
 def show_metrics_table(metrics: dict) -> None:
+    """Рендерит таблицу метрик без индекса pandas."""
     st.dataframe(metrics_to_dataframe(metrics), use_container_width=True, hide_index=True)
 
 
 def show_k_curves(curves: pd.DataFrame) -> None:
+    """Показывает кривые качества по разным значениям K."""
     if curves.empty:
         st.warning("Недостаточно данных для построения кривых.")
         return
@@ -79,6 +91,7 @@ def show_k_curves(curves: pd.DataFrame) -> None:
     metric_tabs = st.tabs(["Hit rate", "Precision", "Coverage", "Novelty"])
     for tab, metric in zip(metric_tabs, ["Hit rate", "Precision", "Coverage", "Novelty"]):
         with tab:
+            # Streamlit line_chart ожидает wide-формат: строки — K, колонки — модели.
             pivot = chart_data.pivot(index="K", columns="Модель", values=metric)
             st.line_chart(pivot, use_container_width=True)
 
@@ -114,6 +127,7 @@ min_positive_rating = st.slider("Порог положительной оцен�
 if st.button("Пересчитать сравнение", type="primary"):
     data = get_data()
     with st.spinner("Считаем offline-метрики..."):
+        # Основная оценка считается для выбранного K.
         metrics = compare_recommenders(
             data.movies,
             data.ratings,
@@ -123,6 +137,7 @@ if st.button("Пересчитать сравнение", type="primary"):
             min_positive_rating=min_positive_rating,
             max_cf_users=max_cf_users,
         )
+        # Кривые нужны для понимания, как модели ведут себя при росте списка рекомендаций.
         curves = evaluate_at_k_values(
             data.movies,
             data.ratings,
@@ -134,7 +149,9 @@ if st.button("Пересчитать сравнение", type="primary"):
         )
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     metrics_path = MODELS_DIR / "metrics.json"
+    curves_path = MODELS_DIR / "metrics_by_k.csv"
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    curves.to_csv(curves_path, index=False)
     st.success(f"Метрики сохранены: {metrics_path.relative_to(PROJECT_ROOT)}")
     show_metrics_table(metrics)
     st.subheader("Кривые по K")

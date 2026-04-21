@@ -1,3 +1,5 @@
+"""Тесты offline-оценки рекомендательных моделей."""
+
 from __future__ import annotations
 
 import pytest

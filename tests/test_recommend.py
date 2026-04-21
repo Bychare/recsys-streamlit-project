@@ -1,3 +1,5 @@
+"""Тесты простых baseline-рекомендателей."""
+
 from __future__ import annotations
 
 import pytest

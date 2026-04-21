@@ -1,3 +1,9 @@
+"""Главная страница Streamlit-приложения.
+
+Здесь собраны пользовательские сценарии рекомендаций:
+популярные фильмы, top-rated фильмы, похожие фильмы и персональные рекомендации.
+"""
+
 from __future__ import annotations
 
 import sys
@@ -6,6 +12,9 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+# При запуске через `streamlit run app/Home.py` Python видит папку `app/`,
+# но не всегда видит корень проекта. Добавляем корень вручную, чтобы работали
+# импорты из `src`.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -27,10 +36,12 @@ st.set_page_config(
 
 @st.cache_data(show_spinner="Загружаем MovieLens...")
 def get_data() -> MovieLensData:
+    """Загружает MovieLens один раз и кеширует результат для Streamlit-сессии."""
     return load_movielens()
 
 
 def format_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Оставляет в таблице только пользовательские колонки и приводит названия к русским."""
     visible_columns = {
         "title": "Фильм",
         "genres": "Жанры",
@@ -54,6 +65,7 @@ st.caption("Демо рекомендательной системы на MovieL
 try:
     data = get_data()
 except Exception as exc:
+    # Чаще всего сюда попадаем, если MovieLens еще не скачан и нет интернета.
     st.error("Не удалось загрузить MovieLens. Проверьте подключение к интернету и повторите запуск.")
     st.exception(exc)
     st.stop()
@@ -68,6 +80,7 @@ metric_3.metric("Пользователей", f"{ratings['userId'].nunique():,}"
 
 with st.sidebar:
     st.header("Настройки")
+    # Один экран, но несколько разных рекомендательных сценариев.
     mode = st.radio(
         "Сценарий",
         ["Популярные фильмы", "Top-rated", "Похожие фильмы", "Персональные рекомендации"],
@@ -91,17 +104,20 @@ with st.sidebar:
     )
 
 if mode == "Популярные фильмы":
+    # Простая baseline-логика: чем больше оценок у фильма, тем выше он в списке.
     st.subheader("Популярные фильмы")
     recommendations = get_popular_movies(movies, ratings, min_ratings=min_ratings, limit=limit)
     st.dataframe(format_table(recommendations), use_container_width=True, hide_index=True)
 
 elif mode == "Top-rated":
+    # Средняя оценка имеет смысл только после фильтра по минимальному числу оценок.
     st.subheader("Top-rated фильмы")
     recommendations = get_top_rated_movies(movies, ratings, min_ratings=min_ratings, limit=limit)
     st.dataframe(format_table(recommendations), use_container_width=True, hide_index=True)
 
 else:
     if mode == "Персональные рекомендации":
+        # Item-item collaborative filtering строит рекомендации из истории выбранного пользователя.
         st.subheader("Персональные рекомендации")
         user_ids = sorted(ratings["userId"].astype(int).unique().tolist())
         selected_user_id = st.selectbox(
@@ -139,6 +155,7 @@ else:
             )
         st.stop()
 
+    # Content-based сценарий: ищем похожие фильмы по названию и жанрам.
     st.subheader("Похожие фильмы")
     movie_options = movies.sort_values("title")[["movieId", "title"]].reset_index(drop=True)
     selected_title = st.selectbox("Выберите фильм", movie_options["title"].tolist(), index=0)

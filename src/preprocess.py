@@ -1,3 +1,9 @@
+"""Offline-препроцессинг и сохранение артефактов.
+
+Этот модуль нужен, чтобы часть работы можно было выполнять заранее:
+подготовить признаки фильмов, статистики рейтингов и TF-IDF матрицу.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -17,6 +23,8 @@ MODELS_DIR = PROJECT_ROOT / "models"
 
 @dataclass(frozen=True)
 class ArtifactPaths:
+    """Пути к файлам, которые создает pipeline подготовки артефактов."""
+
     movies_features: Path
     rating_stats: Path
     tfidf_vectorizer: Path
@@ -24,6 +32,7 @@ class ArtifactPaths:
 
 
 def create_movie_features(movies: pd.DataFrame) -> pd.DataFrame:
+    """Добавляет текстовые признаки, которые потом используются content-based моделью."""
     result = movies.copy()
     result["genres"] = result["genres"].fillna("(no genres listed)")
     result["genres_text"] = result["genres"].str.replace("|", " ", regex=False)
@@ -33,6 +42,7 @@ def create_movie_features(movies: pd.DataFrame) -> pd.DataFrame:
 
 
 def create_rating_stats(ratings: pd.DataFrame) -> pd.DataFrame:
+    """Считает базовую статистику оценок по каждому фильму."""
     return (
         ratings.groupby("movieId", as_index=False)
         .agg(rating_count=("rating", "size"), mean_rating=("rating", "mean"))
@@ -42,6 +52,7 @@ def create_rating_stats(ratings: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_content_artifacts(movies_features: pd.DataFrame) -> tuple[TfidfVectorizer, sparse.csr_matrix]:
+    """Обучает TF-IDF vectorizer и строит разреженную матрицу признаков фильмов."""
     vectorizer = TfidfVectorizer(stop_words="english")
     matrix = vectorizer.fit_transform(movies_features["feature_text"])
     return vectorizer, matrix
@@ -52,6 +63,7 @@ def build_and_save_artifacts(
     processed_dir: Path = PROCESSED_DIR,
     models_dir: Path = MODELS_DIR,
 ) -> ArtifactPaths:
+    """Полный offline pipeline: признаки, статистики и модельные файлы на диск."""
     ensure_data_dirs()
     processed_dir.mkdir(parents=True, exist_ok=True)
     models_dir.mkdir(parents=True, exist_ok=True)
@@ -67,6 +79,7 @@ def build_and_save_artifacts(
         tfidf_matrix=models_dir / "tfidf_matrix.npz",
     )
 
+    # Таблицы сохраняем в parquet, а ML-объекты — в форматах, удобных для быстрой загрузки.
     movies_features.to_parquet(paths.movies_features, index=False)
     rating_stats.to_parquet(paths.rating_stats, index=False)
     joblib.dump(vectorizer, paths.tfidf_vectorizer)

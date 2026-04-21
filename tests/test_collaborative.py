@@ -1,3 +1,5 @@
+"""Тесты item-item collaborative filtering."""
+
 from __future__ import annotations
 
 import pytest
