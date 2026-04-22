@@ -80,6 +80,27 @@ def test_prepare_movielens_extracts_archive(tmp_path, monkeypatch):
     assert (dataset_dir / "movies.csv").exists()
 
 
+def test_prepare_movielens_reextracts_incomplete_dataset(tmp_path, monkeypatch):
+    raw_dir = tmp_path / "raw"
+    processed_dir = tmp_path / "processed"
+    archive_path = raw_dir / "ml-latest-small.zip"
+    dataset_dir = raw_dir / "ml-latest-small"
+    dataset_dir.mkdir(parents=True)
+    (dataset_dir / "movies.csv").write_text("movieId,title,genres\n1,A,Drama\n", encoding="utf-8")
+
+    with ZipFile(archive_path, "w") as zip_file:
+        zip_file.writestr("ml-latest-small/movies.csv", "movieId,title,genres\n1,A,Drama\n")
+        zip_file.writestr("ml-latest-small/ratings.csv", "userId,movieId,rating,timestamp\n1,1,5,100\n")
+
+    monkeypatch.setattr(data_loader, "RAW_DIR", raw_dir)
+    monkeypatch.setattr(data_loader, "PROCESSED_DIR", processed_dir)
+    monkeypatch.setattr(data_loader, "MOVIELENS_ZIP", archive_path)
+    monkeypatch.setattr(data_loader, "MOVIELENS_DIR", dataset_dir)
+
+    assert data_loader.prepare_movielens() == dataset_dir
+    assert (dataset_dir / "ratings.csv").exists()
+
+
 def test_safe_extract_rejects_path_traversal(tmp_path):
     archive_path = tmp_path / "unsafe.zip"
     with ZipFile(archive_path, "w") as zip_file:

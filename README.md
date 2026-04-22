@@ -4,6 +4,8 @@ Streamlit-приложение с рекомендательными сцена�
 
 Проект начинается с простых baseline-подходов и подготовлен к постепенному развитию: отдельная логика загрузки данных, препроцессинг, offline-оценка, тесты и Streamlit-интерфейс.
 
+Проект сфокусирован на классическом UI рекомендательной системы и не содержит чат-интерфейса.
+
 ## Возможности
 
 - автоматическая загрузка MovieLens `latest-small` при первом запуске;
@@ -13,11 +15,13 @@ Streamlit-приложение с рекомендательными сцена�
 - персональные рекомендации по `userId`;
 - item-item collaborative filtering на user-item матрице;
 - страница с обзором датасета;
-- страница с offline-оценкой popularity baseline;
-- сравнение popularity baseline и item-item collaborative filtering;
+- страница с offline-оценкой popularity baseline, top-rated baseline и item-item collaborative filtering;
+- сравнение нескольких рекомендателей в UI;
 - графики активности пользователей, жанров и связи рейтинга с популярностью фильмов;
 - кривые `hit_rate@k`, `precision@k`, `coverage@k`, `novelty@k`;
 - подготовка TF-IDF артефактов для content-based подхода;
+- кеширование TF-IDF и item-user матриц в Streamlit-интерфейсе;
+- Docker-окружение для локального запуска;
 - тесты с coverage-отчетом.
 
 ## Быстрый старт
@@ -39,6 +43,15 @@ http://localhost:8501
 При первом запуске MovieLens скачивается в `data/raw/`.
 
 Не запускайте `app/Home.py` как обычный Python-файл. Для Streamlit нужен запуск через `streamlit run app/Home.py`.
+
+## Запуск в Docker
+
+```bash
+docker build -t recsys-streamlit .
+docker run --rm -p 8501:8501 recsys-streamlit
+```
+
+В контейнере MovieLens также скачивается при первом запуске, если данных еще нет.
 
 ## Структура
 
@@ -64,6 +77,8 @@ http://localhost:8501
 │   ├── preprocess.py
 │   └── recommend.py
 ├── tests/
+├── .dockerignore
+├── Dockerfile
 ├── pytest.ini
 ├── .gitignore
 ├── README.md
@@ -93,7 +108,7 @@ models/tfidf_matrix.npz
 python scripts/evaluate.py
 ```
 
-Команда считает `hit_rate@10` и `precision@10` для `popularity_baseline` и `item_item_cf`, затем сохраняет результат:
+Команда считает `hit_rate@10`, `precision@10`, `coverage@10` и `novelty@10` для `popularity_baseline`, `top_rated_baseline` и `item_item_cf`, затем сохраняет результат:
 
 ```text
 models/metrics.json
@@ -120,6 +135,6 @@ pytest
 
 ## Следующие улучшения
 
-- сравнить несколько рекомендателей в UI;
-- подготовить Docker-окружение для запуска на сервере;
+- добавить SVD/ALS или гибридный content+collaborative подход;
+- использовать `tags.csv` и `links.csv` для более богатых признаков фильмов;
 - добавить PySpark/Airflow как отдельные инженерные компоненты после стабилизации MVP.

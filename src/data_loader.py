@@ -22,6 +22,7 @@ PROCESSED_DIR = DATA_DIR / "processed"
 MOVIELENS_URL = "https://files.grouplens.org/datasets/movielens/ml-latest-small.zip"
 MOVIELENS_ZIP = RAW_DIR / "ml-latest-small.zip"
 MOVIELENS_DIR = RAW_DIR / "ml-latest-small"
+REQUIRED_MOVIELENS_FILES = ("movies.csv", "ratings.csv")
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,19 @@ def _safe_extract(zip_file: ZipFile, target_dir: Path) -> None:
     zip_file.extractall(target_dir)
 
 
+def _missing_movielens_files(dataset_dir: Path) -> list[str]:
+    """Возвращает обязательные CSV, которых нет в распакованном датасете."""
+    return [filename for filename in REQUIRED_MOVIELENS_FILES if not (dataset_dir / filename).is_file()]
+
+
+def _validate_movielens_dir(dataset_dir: Path) -> None:
+    """Проверяет, что распакованный MovieLens содержит нужные для приложения CSV."""
+    missing_files = _missing_movielens_files(dataset_dir)
+    if missing_files:
+        missing = ", ".join(missing_files)
+        raise FileNotFoundError(f"MovieLens dataset is incomplete. Missing files: {missing}")
+
+
 def download_movielens(force: bool = False) -> Path:
     """Скачивает архив MovieLens, если его еще нет локально."""
     ensure_data_dirs()
@@ -59,12 +73,13 @@ def download_movielens(force: bool = False) -> Path:
 def prepare_movielens(force_download: bool = False) -> Path:
     """Гарантирует, что архив скачан и распакован в `data/raw`."""
     ensure_data_dirs()
-    if MOVIELENS_DIR.exists() and not force_download:
+    if MOVIELENS_DIR.exists() and not force_download and not _missing_movielens_files(MOVIELENS_DIR):
         return MOVIELENS_DIR
 
     archive_path = download_movielens(force=force_download)
     with ZipFile(archive_path) as zip_file:
         _safe_extract(zip_file, RAW_DIR)
+    _validate_movielens_dir(MOVIELENS_DIR)
     return MOVIELENS_DIR
 
 

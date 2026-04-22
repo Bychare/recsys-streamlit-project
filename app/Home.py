@@ -19,11 +19,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.collaborative import get_item_item_recommendations
+from src.collaborative import (
+    ItemUserMatrix,
+    build_item_user_matrix,
+    get_item_item_recommendations_from_matrix,
+    get_item_rating_stats,
+)
 from src.data_loader import MovieLensData, load_movielens
 from src.recommend import (
+    ContentFeatureMatrix,
+    build_content_feature_matrix,
     get_popular_movies,
-    get_similar_movies,
+    get_similar_movies_from_matrix,
     get_top_rated_movies,
 )
 
@@ -38,6 +45,18 @@ st.set_page_config(
 def get_data() -> MovieLensData:
     """Загружает MovieLens один раз и кеширует результат для Streamlit-сессии."""
     return load_movielens()
+
+
+@st.cache_resource(show_spinner="Готовим content-based матрицу...")
+def get_content_features(movies: pd.DataFrame) -> ContentFeatureMatrix:
+    """Кеширует TF-IDF матрицу, чтобы похожие фильмы искались без пересборки признаков."""
+    return build_content_feature_matrix(movies)
+
+
+@st.cache_resource(show_spinner="Готовим CF-матрицу...")
+def get_cf_artifacts(ratings: pd.DataFrame) -> tuple[ItemUserMatrix, pd.DataFrame]:
+    """Кеширует item-user матрицу и статистики фильмов для персональных рекомендаций."""
+    return build_item_user_matrix(ratings), get_item_rating_stats(ratings)
 
 
 def format_table(df: pd.DataFrame) -> pd.DataFrame:
@@ -65,8 +84,8 @@ st.caption("Демо рекомендательной системы на MovieL
 try:
     data = get_data()
 except Exception as exc:
-    # Чаще всего сюда попадаем, если MovieLens еще не скачан и нет интернета.
-    st.error("Не удалось загрузить MovieLens. Проверьте подключение к интернету и повторите запуск.")
+    # Чаще всего сюда попадаем, если MovieLens еще не скачан, нет интернета или данные неполные.
+    st.error("Не удалось загрузить MovieLens. Проверьте локальные данные или подключение к интернету.")
     st.exception(exc)
     st.stop()
 
@@ -126,10 +145,13 @@ else:
             format_func=lambda value: f"User {value}",
         )
 
-        recommendations = get_item_item_recommendations(
-            selected_user_id,
-            movies,
-            ratings,
+        item_user, rating_stats = get_cf_artifacts(ratings)
+        recommendations = get_item_item_recommendations_from_matrix(
+            user_id=selected_user_id,
+            movies=movies,
+            ratings=ratings,
+            item_user=item_user,
+            rating_stats=rating_stats,
             limit=limit,
             min_positive_rating=min_positive_rating,
         )
@@ -158,8 +180,27 @@ else:
     # Content-based сценарий: ищем похожие фильмы по названию и жанрам.
     st.subheader("Похожие фильмы")
     movie_options = movies.sort_values("title")[["movieId", "title"]].reset_index(drop=True)
-    selected_title = st.selectbox("Выберите фильм", movie_options["title"].tolist(), index=0)
-    selected_movie_id = int(movie_options.loc[movie_options["title"] == selected_title, "movieId"].iloc[0])
+    title_counts = movie_options["title"].value_counts()
+    movie_options["label"] = movie_options.apply(
+        lambda row: (
+            f"{row['title']} · ID {int(row['movieId'])}"
+            if title_counts[row["title"]] > 1
+            else row["title"]
+        ),
+        axis=1,
+    )
+    selected_index = st.selectbox(
+        "Выберите фильм",
+        movie_options.index.tolist(),
+        index=0,
+        format_func=lambda index: movie_options.loc[index, "label"],
+    )
+    selected_movie_id = int(movie_options.loc[selected_index, "movieId"])
 
-    recommendations = get_similar_movies(selected_movie_id, movies, limit=limit)
+    recommendations = get_similar_movies_from_matrix(
+        selected_movie_id,
+        movies,
+        get_content_features(movies),
+        limit=limit,
+    )
     st.dataframe(format_table(recommendations), use_container_width=True, hide_index=True)

@@ -66,7 +66,7 @@ def _empty_recommendations() -> pd.DataFrame:
     )
 
 
-def _rating_stats(ratings: pd.DataFrame) -> pd.DataFrame:
+def get_item_rating_stats(ratings: pd.DataFrame) -> pd.DataFrame:
     """Агрегаты по фильмам нужны, чтобы сортировать и показывать рекомендации понятнее."""
     return (
         ratings.groupby("movieId", as_index=False)
@@ -123,7 +123,7 @@ def get_item_item_recommendations_from_matrix(
     )
     scored = scored[~scored["movieId"].isin(seen_movie_ids)]
 
-    rating_stats = rating_stats if rating_stats is not None else _rating_stats(ratings)
+    rating_stats = rating_stats if rating_stats is not None else get_item_rating_stats(ratings)
     result = scored.merge(movies, on="movieId", how="inner").merge(rating_stats, on="movieId", how="left")
     result = result.fillna({"rating_count": 0, "mean_rating": 0.0})
 
@@ -151,7 +151,7 @@ def get_item_item_recommendations(
         movies=movies,
         ratings=ratings,
         item_user=item_user,
-        rating_stats=_rating_stats(ratings),
+        rating_stats=get_item_rating_stats(ratings),
         limit=limit,
         min_positive_rating=min_positive_rating,
     )

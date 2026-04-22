@@ -44,7 +44,13 @@ def get_data() -> MovieLensData:
     return load_movielens()
 
 
-data = get_data()
+try:
+    data = get_data()
+except Exception as exc:
+    st.error("Не удалось загрузить MovieLens. Проверьте локальные данные или подключение к интернету.")
+    st.exception(exc)
+    st.stop()
+
 movies = data.movies
 ratings = data.ratings
 summary = get_dataset_summary(movies, ratings)

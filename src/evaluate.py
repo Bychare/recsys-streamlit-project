@@ -14,7 +14,7 @@ from src.collaborative import (
     build_item_user_matrix,
     get_item_item_recommendations_from_matrix,
 )
-from src.recommend import get_popular_movies
+from src.recommend import get_popular_movies, get_top_rated_movies
 
 
 @dataclass(frozen=True)
@@ -94,26 +94,13 @@ def _metrics_result(
     }
 
 
-def evaluate_popularity_baseline(
+def _evaluate_static_ranking(
     movies: pd.DataFrame,
-    ratings: pd.DataFrame,
-    k: int = 10,
-    min_user_ratings: int = 2,
-    min_movie_ratings: int = 1,
+    split: LeaveOneOutSplit,
+    ranked_movie_ids: list[int],
+    k: int,
 ) -> dict[str, float | int]:
-    """Оценивает baseline, который рекомендует глобально популярные фильмы."""
-    if k < 1:
-        raise ValueError("k must be positive")
-
-    split = leave_one_out_split(ratings, min_user_ratings=min_user_ratings)
-    popular = get_popular_movies(
-        movies,
-        split.train,
-        min_ratings=min_movie_ratings,
-        limit=len(movies),
-    )
-    ranked_movie_ids = popular["movieId"].astype(int).tolist()
-
+    """Оценивает baseline, который использует один общий рейтинг фильмов для всех пользователей."""
     test_by_user = split.test.set_index("userId")["movieId"].astype(int).to_dict()
     train_by_user = split.train.groupby("userId")["movieId"].apply(lambda values: set(values.astype(int)))
 
@@ -144,6 +131,52 @@ def evaluate_popularity_baseline(
         all_movie_count=int(movies["movieId"].nunique()),
         movie_popularity=movie_popularity,
     )
+
+
+def evaluate_popularity_baseline(
+    movies: pd.DataFrame,
+    ratings: pd.DataFrame,
+    k: int = 10,
+    min_user_ratings: int = 2,
+    min_movie_ratings: int = 1,
+) -> dict[str, float | int]:
+    """Оценивает baseline, который рекомендует глобально популярные фильмы."""
+    if k < 1:
+        raise ValueError("k must be positive")
+
+    split = leave_one_out_split(ratings, min_user_ratings=min_user_ratings)
+    popular = get_popular_movies(
+        movies,
+        split.train,
+        min_ratings=min_movie_ratings,
+        limit=len(movies),
+    )
+    ranked_movie_ids = popular["movieId"].astype(int).tolist()
+
+    return _evaluate_static_ranking(movies, split, ranked_movie_ids, k)
+
+
+def evaluate_top_rated_baseline(
+    movies: pd.DataFrame,
+    ratings: pd.DataFrame,
+    k: int = 10,
+    min_user_ratings: int = 2,
+    min_movie_ratings: int = 1,
+) -> dict[str, float | int]:
+    """Оценивает baseline, который рекомендует фильмы с лучшей средней оценкой."""
+    if k < 1:
+        raise ValueError("k must be positive")
+
+    split = leave_one_out_split(ratings, min_user_ratings=min_user_ratings)
+    top_rated = get_top_rated_movies(
+        movies,
+        split.train,
+        min_ratings=min_movie_ratings,
+        limit=len(movies),
+    )
+    ranked_movie_ids = top_rated["movieId"].astype(int).tolist()
+
+    return _evaluate_static_ranking(movies, split, ranked_movie_ids, k)
 
 
 def evaluate_item_item_cf(
@@ -221,9 +254,16 @@ def compare_recommenders(
     min_positive_rating: float = 4.0,
     max_cf_users: int | None = 100,
 ) -> dict[str, dict[str, float | int]]:
-    """Считает метрики сразу для двух моделей, чтобы их удобно сравнивать."""
+    """Считает метрики сразу для нескольких моделей, чтобы их удобно сравнивать."""
     return {
         "popularity_baseline": evaluate_popularity_baseline(
+            movies,
+            ratings,
+            k=k,
+            min_user_ratings=min_user_ratings,
+            min_movie_ratings=min_movie_ratings,
+        ),
+        "top_rated_baseline": evaluate_top_rated_baseline(
             movies,
             ratings,
             k=k,

@@ -76,7 +76,11 @@ def show_k_curves(curves: pd.DataFrame) -> None:
         st.warning("Недостаточно данных для построения кривых.")
         return
 
-    chart_data = curves[["model", "k", "hit_rate", "precision", "coverage", "novelty"]].copy()
+    chart_data = curves.copy()
+    for column in ("hit_rate", "precision", "coverage", "novelty"):
+        if column not in chart_data.columns:
+            chart_data[column] = 0.0
+    chart_data = chart_data[["model", "k", "hit_rate", "precision", "coverage", "novelty"]]
     chart_data = chart_data.rename(
         columns={
             "model": "Модель",
@@ -97,7 +101,7 @@ def show_k_curves(curves: pd.DataFrame) -> None:
 
 
 st.title("Model Evaluation")
-st.caption("Offline-сравнение popularity baseline и item-item collaborative filtering.")
+st.caption("Offline-сравнение popularity baseline, top-rated baseline и item-item collaborative filtering.")
 
 stored_metrics = load_metrics()
 if stored_metrics:
@@ -125,7 +129,13 @@ with control_4:
 min_positive_rating = st.slider("Порог положительной оценки для CF", min_value=0.5, max_value=5.0, value=4.0, step=0.5)
 
 if st.button("Пересчитать сравнение", type="primary"):
-    data = get_data()
+    try:
+        data = get_data()
+    except Exception as exc:
+        st.error("Не удалось загрузить MovieLens. Проверьте локальные данные или подключение к интернету.")
+        st.exception(exc)
+        st.stop()
+
     with st.spinner("Считаем offline-метрики..."):
         # Основная оценка считается для выбранного K.
         metrics = compare_recommenders(

@@ -11,6 +11,7 @@ from src.evaluate import (
     evaluate_at_k_values,
     evaluate_item_item_cf,
     evaluate_popularity_baseline,
+    evaluate_top_rated_baseline,
     leave_one_out_split,
 )
 
@@ -87,6 +88,38 @@ def test_evaluate_popularity_baseline_handles_no_evaluated_users():
     }
 
 
+def test_evaluate_top_rated_baseline_returns_metrics():
+    movies = pd.DataFrame(
+        {
+            "movieId": [10, 20, 30],
+            "title": ["A", "B", "C"],
+            "genres": ["Drama", "Drama", "Comedy"],
+        }
+    )
+    ratings = pd.DataFrame(
+        {
+            "userId": [1, 1, 2, 2, 3, 3],
+            "movieId": [10, 20, 10, 30, 20, 30],
+            "rating": [5.0, 4.0, 5.0, 3.0, 4.0, 5.0],
+            "timestamp": [1, 2, 1, 2, 1, 2],
+        }
+    )
+
+    metrics = evaluate_top_rated_baseline(movies, ratings, k=2)
+
+    assert metrics["k"] == 2
+    assert metrics["evaluated_users"] == 3
+    assert 0.0 <= metrics["hit_rate"] <= 1.0
+    assert 0.0 <= metrics["precision"] <= 1.0
+    assert 0.0 <= metrics["coverage"] <= 1.0
+    assert 0.0 <= metrics["novelty"] <= 1.0
+
+
+def test_evaluate_top_rated_baseline_rejects_invalid_k():
+    with pytest.raises(ValueError, match="k must be positive"):
+        evaluate_top_rated_baseline(pd.DataFrame(), pd.DataFrame(), k=0)
+
+
 def test_evaluate_item_item_cf_returns_metrics():
     movies = pd.DataFrame(
         {
@@ -141,8 +174,9 @@ def test_compare_recommenders_returns_named_models():
 
     metrics = compare_recommenders(movies, ratings, k=2, max_cf_users=1)
 
-    assert set(metrics) == {"popularity_baseline", "item_item_cf"}
+    assert set(metrics) == {"popularity_baseline", "top_rated_baseline", "item_item_cf"}
     assert metrics["popularity_baseline"]["k"] == 2
+    assert metrics["top_rated_baseline"]["k"] == 2
     assert metrics["item_item_cf"]["k"] == 2
 
 
@@ -165,6 +199,6 @@ def test_evaluate_at_k_values_returns_curve_rows():
 
     result = evaluate_at_k_values(movies, ratings, k_values=[1, 2], max_cf_users=1)
 
-    assert set(result["model"]) == {"popularity_baseline", "item_item_cf"}
-    assert result["k"].tolist() == [1, 1, 2, 2]
+    assert set(result["model"]) == {"popularity_baseline", "top_rated_baseline", "item_item_cf"}
+    assert result["k"].tolist() == [1, 1, 1, 2, 2, 2]
     assert {"coverage", "novelty"}.issubset(result.columns)

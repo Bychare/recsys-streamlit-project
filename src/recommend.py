@@ -6,9 +6,21 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pandas as pd
+from scipy.sparse import csr_matrix
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+
+
+@dataclass(frozen=True)
+class ContentFeatureMatrix:
+    """TF-IDF матрица фильмов и индексы для быстрого поиска похожих фильмов."""
+
+    matrix: csr_matrix
+    movie_ids: list[int]
+    movie_id_to_index: dict[int, int]
 
 
 def _movie_rating_stats(ratings: pd.DataFrame) -> pd.DataFrame:
@@ -66,23 +78,48 @@ def build_feature_text(movies: pd.DataFrame) -> pd.Series:
     return genres + " " + titles
 
 
-def get_similar_movies(movie_id: int, movies: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
-    """Ищет похожие фильмы через TF-IDF и cosine similarity."""
-    if movie_id not in set(movies["movieId"]):
+def build_content_feature_matrix(movies: pd.DataFrame) -> ContentFeatureMatrix:
+    """Строит TF-IDF матрицу для всего каталога фильмов."""
+    movie_ids = movies["movieId"].astype(int).tolist()
+    if len(set(movie_ids)) != len(movie_ids):
+        raise ValueError("movies must contain unique movieId values")
+
+    vectorizer = TfidfVectorizer(stop_words="english")
+    feature_matrix = vectorizer.fit_transform(build_feature_text(movies))
+    return ContentFeatureMatrix(
+        matrix=feature_matrix,
+        movie_ids=movie_ids,
+        movie_id_to_index={movie_id: index for index, movie_id in enumerate(movie_ids)},
+    )
+
+
+def get_similar_movies_from_matrix(
+    movie_id: int,
+    movies: pd.DataFrame,
+    content_features: ContentFeatureMatrix,
+    limit: int = 10,
+) -> pd.DataFrame:
+    """Ищет похожие фильмы через заранее построенную TF-IDF матрицу."""
+    if limit < 1:
+        raise ValueError("limit must be positive")
+    if int(movie_id) not in content_features.movie_id_to_index:
         raise ValueError(f"Unknown movieId: {movie_id}")
 
-    movie_index = movies.index[movies["movieId"] == movie_id][0]
-    vectorizer = TfidfVectorizer(stop_words="english")
-    # Матрица признаков строится на лету: для MovieLens latest-small это быстро и прозрачно.
-    feature_matrix = vectorizer.fit_transform(build_feature_text(movies))
-
+    movie_index = content_features.movie_id_to_index[int(movie_id)]
+    feature_matrix = content_features.matrix
     similarities = cosine_similarity(feature_matrix[movie_index], feature_matrix).ravel()
     result = movies.copy()
     result["similarity"] = similarities
 
     return (
-        result[result["movieId"] != movie_id]
+        result[result["movieId"].astype(int) != int(movie_id)]
         .sort_values(["similarity", "title"], ascending=[False, True])
         .head(limit)
         .reset_index(drop=True)
     )
+
+
+def get_similar_movies(movie_id: int, movies: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
+    """Ищет похожие фильмы через TF-IDF и cosine similarity."""
+    content_features = build_content_feature_matrix(movies)
+    return get_similar_movies_from_matrix(movie_id, movies, content_features, limit=limit)

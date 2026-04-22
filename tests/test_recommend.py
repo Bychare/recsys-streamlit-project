@@ -7,8 +7,10 @@ import pytest
 import pandas as pd
 
 from src.recommend import (
+    build_content_feature_matrix,
     get_popular_movies,
     get_similar_movies,
+    get_similar_movies_from_matrix,
     get_top_rated_movies,
 )
 
@@ -66,6 +68,22 @@ def test_get_similar_movies_returns_content_neighbors(movies):
     assert result.loc[0, "similarity"] > result.loc[1, "similarity"]
 
 
+def test_get_similar_movies_from_prebuilt_matrix(movies):
+    content_features = build_content_feature_matrix(movies)
+
+    result = get_similar_movies_from_matrix(1, movies, content_features, limit=2)
+
+    assert result.loc[0, "title"] == "Toy Story 2 (1999)"
+    assert result.loc[0, "similarity"] > result.loc[1, "similarity"]
+
+
 def test_get_similar_movies_rejects_unknown_movie_id(movies):
     with pytest.raises(ValueError, match="Unknown movieId"):
         get_similar_movies(999, movies, limit=2)
+
+
+def test_get_similar_movies_from_matrix_rejects_invalid_limit(movies):
+    content_features = build_content_feature_matrix(movies)
+
+    with pytest.raises(ValueError, match="limit must be positive"):
+        get_similar_movies_from_matrix(1, movies, content_features, limit=0)
