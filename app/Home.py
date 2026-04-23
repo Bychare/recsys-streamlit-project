@@ -26,6 +26,16 @@ from src.collaborative import (
     get_item_rating_stats,
 )
 from src.data_loader import MovieLensData, load_movielens
+from src.hybrid import (
+    HybridArtifacts,
+    build_hybrid_artifacts,
+    get_hybrid_recommendations_from_artifacts,
+)
+from src.matrix_factorization import (
+    SVDRecommender,
+    build_svd_recommender,
+    get_svd_recommendations_from_model,
+)
 from src.recommend import (
     ContentFeatureMatrix,
     build_content_feature_matrix,
@@ -59,6 +69,18 @@ def get_cf_artifacts(ratings: pd.DataFrame) -> tuple[ItemUserMatrix, pd.DataFram
     return build_item_user_matrix(ratings), get_item_rating_stats(ratings)
 
 
+@st.cache_resource(show_spinner="Готовим SVD-модель...")
+def get_svd_artifacts(ratings: pd.DataFrame) -> tuple[SVDRecommender, pd.DataFrame]:
+    """Кеширует SVD-модель и статистики фильмов для персональных рекомендаций."""
+    return build_svd_recommender(ratings), get_item_rating_stats(ratings)
+
+
+@st.cache_resource(show_spinner="Готовим hybrid-модель...")
+def get_hybrid_artifacts(movies: pd.DataFrame, ratings: pd.DataFrame) -> HybridArtifacts:
+    """Кеширует артефакты гибридного рекомендателя."""
+    return build_hybrid_artifacts(movies, ratings)
+
+
 def format_table(df: pd.DataFrame) -> pd.DataFrame:
     """Оставляет в таблице только пользовательские колонки и приводит названия к русским."""
     visible_columns = {
@@ -68,11 +90,14 @@ def format_table(df: pd.DataFrame) -> pd.DataFrame:
         "mean_rating": "Средняя оценка",
         "similarity": "Сходство",
         "cf_score": "CF score",
+        "predicted_rating": "Прогноз оценки",
+        "hybrid_score": "Hybrid score",
+        "popularity_score": "Популярность",
     }
     result = df[[column for column in visible_columns if column in df.columns]].rename(
         columns=visible_columns
     )
-    for column in ("Средняя оценка", "Сходство", "CF score"):
+    for column in ("Средняя оценка", "Сходство", "CF score", "Прогноз оценки", "Hybrid score", "Популярность"):
         if column in result.columns:
             result[column] = result[column].round(3)
     return result
@@ -104,6 +129,13 @@ with st.sidebar:
         "Сценарий",
         ["Популярные фильмы", "Top-rated", "Похожие фильмы", "Персональные рекомендации"],
     )
+    personal_model = None
+    if mode == "Персональные рекомендации":
+        personal_model = st.radio(
+            "Персональная модель",
+            ["Hybrid", "Item-item CF", "SVD"],
+            horizontal=True,
+        )
     limit = st.slider("Количество рекомендаций", min_value=5, max_value=30, value=10, step=5)
     min_ratings = st.slider(
         "Минимум оценок",
@@ -119,7 +151,7 @@ with st.sidebar:
         max_value=5.0,
         value=4.0,
         step=0.5,
-        disabled=mode != "Персональные рекомендации",
+        disabled=mode != "Персональные рекомендации" or personal_model not in {"Item-item CF", "Hybrid"},
     )
 
 if mode == "Популярные фильмы":
@@ -136,7 +168,7 @@ elif mode == "Top-rated":
 
 else:
     if mode == "Персональные рекомендации":
-        # Item-item collaborative filtering строит рекомендации из истории выбранного пользователя.
+        # Здесь доступны три персональных сценария: CF, SVD и их гибрид.
         st.subheader("Персональные рекомендации")
         user_ids = sorted(ratings["userId"].astype(int).unique().tolist())
         selected_user_id = st.selectbox(
@@ -145,19 +177,43 @@ else:
             format_func=lambda value: f"User {value}",
         )
 
-        item_user, rating_stats = get_cf_artifacts(ratings)
-        recommendations = get_item_item_recommendations_from_matrix(
-            user_id=selected_user_id,
-            movies=movies,
-            ratings=ratings,
-            item_user=item_user,
-            rating_stats=rating_stats,
-            limit=limit,
-            min_positive_rating=min_positive_rating,
-        )
+        if personal_model == "Item-item CF":
+            item_user, rating_stats = get_cf_artifacts(ratings)
+            recommendations = get_item_item_recommendations_from_matrix(
+                user_id=selected_user_id,
+                movies=movies,
+                ratings=ratings,
+                item_user=item_user,
+                rating_stats=rating_stats,
+                limit=limit,
+                min_positive_rating=min_positive_rating,
+            )
+        elif personal_model == "SVD":
+            recommender, rating_stats = get_svd_artifacts(ratings)
+            recommendations = get_svd_recommendations_from_model(
+                user_id=selected_user_id,
+                movies=movies,
+                ratings=ratings,
+                recommender=recommender,
+                rating_stats=rating_stats,
+                limit=limit,
+            )
+        else:
+            hybrid_artifacts = get_hybrid_artifacts(movies, ratings)
+            recommendations = get_hybrid_recommendations_from_artifacts(
+                user_id=selected_user_id,
+                movies=movies,
+                ratings=ratings,
+                artifacts=hybrid_artifacts,
+                limit=limit,
+                min_positive_rating=min_positive_rating,
+            )
 
         if recommendations.empty:
-            st.warning("Для пользователя недостаточно положительных оценок при выбранном пороге.")
+            if personal_model == "Item-item CF":
+                st.warning("Для пользователя недостаточно положительных оценок при выбранном пороге.")
+            else:
+                st.warning("Не удалось построить рекомендации для выбранного пользователя.")
         else:
             st.dataframe(format_table(recommendations), use_container_width=True, hide_index=True)
 

@@ -12,9 +12,14 @@ htmlcov/
 
 .env
 .env.*
+.env.example
 .codex
 .vscode/
 .streamlit/secrets.toml
+.github/
+tests/
+Makefile
+docker-compose.yml
 
 data/raw/*
 data/processed/*

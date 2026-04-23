@@ -1,18 +1,27 @@
 """Offline-оценка рекомендательных моделей.
 
 Здесь используются простые, но воспроизводимые метрики: hit_rate, precision,
-coverage и novelty. Оценка сделана через leave-one-out split по пользователям.
+NDCG, coverage и novelty. Оценка сделана через leave-one-out split по пользователям.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import pandas as pd
 
 from src.collaborative import (
     build_item_user_matrix,
     get_item_item_recommendations_from_matrix,
+)
+from src.matrix_factorization import (
+    build_svd_recommender,
+    get_svd_recommendations_from_model,
+)
+from src.hybrid import (
+    build_hybrid_artifacts,
+    get_hybrid_recommendations_from_artifacts,
 )
 from src.recommend import get_popular_movies, get_top_rated_movies
 
@@ -60,6 +69,7 @@ def _metrics_result(
     evaluated_users: int,
     hits: int,
     precision_sum: float,
+    ndcg_sum: float = 0.0,
     recommended_movie_ids: set[int] | None = None,
     all_movie_count: int = 0,
     movie_popularity: dict[int, int] | None = None,
@@ -80,6 +90,7 @@ def _metrics_result(
             "evaluated_users": 0,
             "hit_rate": 0.0,
             "precision": 0.0,
+            "ndcg": 0.0,
             "coverage": coverage,
             "novelty": novelty,
         }
@@ -89,9 +100,17 @@ def _metrics_result(
         "evaluated_users": evaluated_users,
         "hit_rate": hits / evaluated_users,
         "precision": precision_sum / evaluated_users,
+        "ndcg": ndcg_sum / evaluated_users,
         "coverage": coverage,
         "novelty": novelty,
     }
+
+
+def _ndcg_at_rank(rank: int | None) -> float:
+    """Считает вклад одной релевантной позиции в NDCG@K."""
+    if rank is None or rank < 1:
+        return 0.0
+    return 1 / math.log2(rank + 1)
 
 
 def _evaluate_static_ranking(
@@ -106,6 +125,7 @@ def _evaluate_static_ranking(
 
     hits = 0
     precision_sum = 0.0
+    ndcg_sum = 0.0
     evaluated_users = 0
     recommended_movie_ids: set[int] = set()
     movie_popularity = split.train.groupby("movieId").size().astype(int).to_dict()
@@ -120,6 +140,8 @@ def _evaluate_static_ranking(
         hit = int(relevant_movie_id in recommendations)
         hits += hit
         precision_sum += hit / len(recommendations)
+        rank = recommendations.index(relevant_movie_id) + 1 if hit else None
+        ndcg_sum += _ndcg_at_rank(rank)
         evaluated_users += 1
 
     return _metrics_result(
@@ -127,6 +149,7 @@ def _evaluate_static_ranking(
         evaluated_users,
         hits,
         precision_sum,
+        ndcg_sum=ndcg_sum,
         recommended_movie_ids=recommended_movie_ids,
         all_movie_count=int(movies["movieId"].nunique()),
         movie_popularity=movie_popularity,
@@ -210,6 +233,7 @@ def evaluate_item_item_cf(
 
     hits = 0
     precision_sum = 0.0
+    ndcg_sum = 0.0
     evaluated_users = 0
     recommended_movie_ids: set[int] = set()
     movie_popularity = split.train.groupby("movieId").size().astype(int).to_dict()
@@ -232,6 +256,12 @@ def evaluate_item_item_cf(
         hit = int(int(row.movieId) in user_recommended_movie_ids)
         hits += hit
         precision_sum += hit / len(recommendations)
+        rank = (
+            recommendations.index[recommendations["movieId"].astype(int) == int(row.movieId)].tolist()[0] + 1
+            if hit
+            else None
+        )
+        ndcg_sum += _ndcg_at_rank(rank)
         evaluated_users += 1
 
     return _metrics_result(
@@ -239,6 +269,152 @@ def evaluate_item_item_cf(
         evaluated_users,
         hits,
         precision_sum,
+        ndcg_sum=ndcg_sum,
+        recommended_movie_ids=recommended_movie_ids,
+        all_movie_count=int(movies["movieId"].nunique()),
+        movie_popularity=movie_popularity,
+    )
+
+
+def evaluate_svd_recommender(
+    movies: pd.DataFrame,
+    ratings: pd.DataFrame,
+    k: int = 10,
+    min_user_ratings: int = 2,
+    max_users: int | None = 100,
+    n_components: int = 20,
+) -> dict[str, float | int]:
+    """Оценивает персональный SVD-рекомендатель на leave-one-out split."""
+    if k < 1:
+        raise ValueError("k must be positive")
+    if max_users is not None and max_users < 1:
+        raise ValueError("max_users must be positive or None")
+    if n_components < 1:
+        raise ValueError("n_components must be positive")
+
+    split = leave_one_out_split(ratings, min_user_ratings=min_user_ratings)
+    test = split.test.sort_values("userId").reset_index(drop=True)
+    if max_users is not None:
+        # SVD заметно быстрее item-item CF, но ограничение полезно для UI и честного сравнения.
+        test = test.head(max_users)
+
+    if test.empty:
+        return _metrics_result(k, evaluated_users=0, hits=0, precision_sum=0.0)
+
+    recommender = build_svd_recommender(split.train, n_components=n_components)
+    rating_stats = (
+        split.train.groupby("movieId", as_index=False)
+        .agg(rating_count=("rating", "size"), mean_rating=("rating", "mean"))
+    )
+
+    hits = 0
+    precision_sum = 0.0
+    ndcg_sum = 0.0
+    evaluated_users = 0
+    recommended_movie_ids: set[int] = set()
+    movie_popularity = split.train.groupby("movieId").size().astype(int).to_dict()
+
+    for row in test.itertuples(index=False):
+        recommendations = get_svd_recommendations_from_model(
+            user_id=int(row.userId),
+            movies=movies,
+            ratings=split.train,
+            recommender=recommender,
+            rating_stats=rating_stats,
+            limit=k,
+        )
+        if recommendations.empty:
+            continue
+
+        user_recommended_movie_ids = set(recommendations["movieId"].astype(int).tolist())
+        recommended_movie_ids.update(user_recommended_movie_ids)
+        hit = int(int(row.movieId) in user_recommended_movie_ids)
+        hits += hit
+        precision_sum += hit / len(recommendations)
+        rank = (
+            recommendations.index[recommendations["movieId"].astype(int) == int(row.movieId)].tolist()[0] + 1
+            if hit
+            else None
+        )
+        ndcg_sum += _ndcg_at_rank(rank)
+        evaluated_users += 1
+
+    return _metrics_result(
+        k,
+        evaluated_users,
+        hits,
+        precision_sum,
+        ndcg_sum=ndcg_sum,
+        recommended_movie_ids=recommended_movie_ids,
+        all_movie_count=int(movies["movieId"].nunique()),
+        movie_popularity=movie_popularity,
+    )
+
+
+def evaluate_hybrid_recommender(
+    movies: pd.DataFrame,
+    ratings: pd.DataFrame,
+    k: int = 10,
+    min_user_ratings: int = 2,
+    min_positive_rating: float = 4.0,
+    max_users: int | None = 100,
+    n_components: int = 20,
+) -> dict[str, float | int]:
+    """Оценивает гибридный ранжировщик на leave-one-out split."""
+    if k < 1:
+        raise ValueError("k must be positive")
+    if max_users is not None and max_users < 1:
+        raise ValueError("max_users must be positive or None")
+    if n_components < 1:
+        raise ValueError("n_components must be positive")
+
+    split = leave_one_out_split(ratings, min_user_ratings=min_user_ratings)
+    test = split.test.sort_values("userId").reset_index(drop=True)
+    if max_users is not None:
+        test = test.head(max_users)
+
+    if test.empty:
+        return _metrics_result(k, evaluated_users=0, hits=0, precision_sum=0.0)
+
+    artifacts = build_hybrid_artifacts(movies, split.train, n_components=n_components)
+    hits = 0
+    precision_sum = 0.0
+    ndcg_sum = 0.0
+    evaluated_users = 0
+    recommended_movie_ids: set[int] = set()
+    movie_popularity = split.train.groupby("movieId").size().astype(int).to_dict()
+
+    for row in test.itertuples(index=False):
+        recommendations = get_hybrid_recommendations_from_artifacts(
+            user_id=int(row.userId),
+            movies=movies,
+            ratings=split.train,
+            artifacts=artifacts,
+            limit=k,
+            min_positive_rating=min_positive_rating,
+        )
+        if recommendations.empty:
+            continue
+
+        user_recommended_movie_ids = set(recommendations["movieId"].astype(int).tolist())
+        recommended_movie_ids.update(user_recommended_movie_ids)
+        hit = int(int(row.movieId) in user_recommended_movie_ids)
+        hits += hit
+        precision_sum += hit / len(recommendations)
+        rank = (
+            recommendations.index[recommendations["movieId"].astype(int) == int(row.movieId)].tolist()[0] + 1
+            if hit
+            else None
+        )
+        ndcg_sum += _ndcg_at_rank(rank)
+        evaluated_users += 1
+
+    return _metrics_result(
+        k,
+        evaluated_users,
+        hits,
+        precision_sum,
+        ndcg_sum=ndcg_sum,
         recommended_movie_ids=recommended_movie_ids,
         all_movie_count=int(movies["movieId"].nunique()),
         movie_popularity=movie_popularity,
@@ -271,6 +447,21 @@ def compare_recommenders(
             min_movie_ratings=min_movie_ratings,
         ),
         "item_item_cf": evaluate_item_item_cf(
+            movies,
+            ratings,
+            k=k,
+            min_user_ratings=min_user_ratings,
+            min_positive_rating=min_positive_rating,
+            max_users=max_cf_users,
+        ),
+        "svd_recommender": evaluate_svd_recommender(
+            movies,
+            ratings,
+            k=k,
+            min_user_ratings=min_user_ratings,
+            max_users=max_cf_users,
+        ),
+        "hybrid_recommender": evaluate_hybrid_recommender(
             movies,
             ratings,
             k=k,

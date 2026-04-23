@@ -1,7 +1,7 @@
 """Страница offline-оценки рекомендателей.
 
-На этой странице сравниваются простая популярность и item-item collaborative
-filtering. Метрики можно пересчитать из UI, после чего они сохраняются в `models/`.
+На этой странице сравниваются baseline-подходы и персональные модели.
+Метрики можно пересчитать из UI, после чего они сохраняются в `models/`.
 """
 
 from __future__ import annotations
@@ -26,6 +26,14 @@ from src.preprocess import MODELS_DIR
 
 st.set_page_config(page_title="Model Evaluation", layout="wide")
 
+MODEL_LABELS = {
+    "popularity_baseline": "Popularity baseline",
+    "top_rated_baseline": "Top-rated baseline",
+    "item_item_cf": "Item-item CF",
+    "svd_recommender": "SVD",
+    "hybrid_recommender": "Hybrid",
+}
+
 
 @st.cache_data(show_spinner="Загружаем MovieLens...")
 def get_data() -> MovieLensData:
@@ -45,12 +53,16 @@ def metrics_to_dataframe(metrics: dict) -> pd.DataFrame:
     if result.empty:
         return result
 
-    for column in ("coverage", "novelty"):
+    result["model"] = result["model"].map(lambda value: MODEL_LABELS.get(value, value))
+    result["model"] = pd.Categorical(result["model"], categories=MODEL_LABELS.values(), ordered=True)
+    result = result.sort_values("model").reset_index(drop=True)
+
+    for column in ("ndcg", "coverage", "novelty"):
         if column not in result.columns:
             result[column] = 0.0
 
-    result = result[["model", "k", "evaluated_users", "hit_rate", "precision", "coverage", "novelty"]]
-    for column in ("hit_rate", "precision", "coverage", "novelty"):
+    result = result[["model", "k", "evaluated_users", "hit_rate", "precision", "ndcg", "coverage", "novelty"]]
+    for column in ("hit_rate", "precision", "ndcg", "coverage", "novelty"):
         result[column] = result[column].astype(float).round(4)
     return result.rename(
         columns={
@@ -59,6 +71,7 @@ def metrics_to_dataframe(metrics: dict) -> pd.DataFrame:
             "evaluated_users": "Пользователей",
             "hit_rate": "Hit rate",
             "precision": "Precision",
+            "ndcg": "NDCG",
             "coverage": "Coverage",
             "novelty": "Novelty",
         }
@@ -77,23 +90,25 @@ def show_k_curves(curves: pd.DataFrame) -> None:
         return
 
     chart_data = curves.copy()
-    for column in ("hit_rate", "precision", "coverage", "novelty"):
+    for column in ("hit_rate", "precision", "ndcg", "coverage", "novelty"):
         if column not in chart_data.columns:
             chart_data[column] = 0.0
-    chart_data = chart_data[["model", "k", "hit_rate", "precision", "coverage", "novelty"]]
+    chart_data["model"] = chart_data["model"].map(lambda value: MODEL_LABELS.get(value, value))
+    chart_data = chart_data[["model", "k", "hit_rate", "precision", "ndcg", "coverage", "novelty"]]
     chart_data = chart_data.rename(
         columns={
             "model": "Модель",
             "k": "K",
             "hit_rate": "Hit rate",
             "precision": "Precision",
+            "ndcg": "NDCG",
             "coverage": "Coverage",
             "novelty": "Novelty",
         }
     )
 
-    metric_tabs = st.tabs(["Hit rate", "Precision", "Coverage", "Novelty"])
-    for tab, metric in zip(metric_tabs, ["Hit rate", "Precision", "Coverage", "Novelty"]):
+    metric_tabs = st.tabs(["Hit rate", "Precision", "NDCG", "Coverage", "Novelty"])
+    for tab, metric in zip(metric_tabs, ["Hit rate", "Precision", "NDCG", "Coverage", "Novelty"]):
         with tab:
             # Streamlit line_chart ожидает wide-формат: строки — K, колонки — модели.
             pivot = chart_data.pivot(index="K", columns="Модель", values=metric)
@@ -101,7 +116,7 @@ def show_k_curves(curves: pd.DataFrame) -> None:
 
 
 st.title("Model Evaluation")
-st.caption("Offline-сравнение popularity baseline, top-rated baseline и item-item collaborative filtering.")
+st.caption("Offline-сравнение popularity baseline, top-rated baseline, item-item collaborative filtering, SVD и hybrid.")
 
 stored_metrics = load_metrics()
 if stored_metrics:
@@ -124,7 +139,7 @@ with control_2:
 with control_3:
     min_movie_ratings = st.slider("Мин. оценок фильма", min_value=1, max_value=100, value=1)
 with control_4:
-    max_cf_users = st.slider("Пользователей для CF", min_value=25, max_value=500, value=100, step=25)
+    max_cf_users = st.slider("Пользователей для CF/SVD/Hybrid", min_value=25, max_value=500, value=100, step=25)
 
 min_positive_rating = st.slider("Порог положительной оценки для CF", min_value=0.5, max_value=5.0, value=4.0, step=0.5)
 

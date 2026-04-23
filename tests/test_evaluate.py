@@ -9,8 +9,10 @@ import pandas as pd
 from src.evaluate import (
     compare_recommenders,
     evaluate_at_k_values,
+    evaluate_hybrid_recommender,
     evaluate_item_item_cf,
     evaluate_popularity_baseline,
+    evaluate_svd_recommender,
     evaluate_top_rated_baseline,
     leave_one_out_split,
 )
@@ -63,6 +65,7 @@ def test_evaluate_popularity_baseline_returns_metrics():
     assert metrics["evaluated_users"] == 3
     assert 0.0 <= metrics["hit_rate"] <= 1.0
     assert 0.0 <= metrics["precision"] <= 1.0
+    assert 0.0 <= metrics["ndcg"] <= 1.0
     assert 0.0 <= metrics["coverage"] <= 1.0
     assert 0.0 <= metrics["novelty"] <= 1.0
 
@@ -83,6 +86,7 @@ def test_evaluate_popularity_baseline_handles_no_evaluated_users():
         "evaluated_users": 0,
         "hit_rate": 0.0,
         "precision": 0.0,
+        "ndcg": 0.0,
         "coverage": 0.0,
         "novelty": 0.0,
     }
@@ -111,6 +115,7 @@ def test_evaluate_top_rated_baseline_returns_metrics():
     assert metrics["evaluated_users"] == 3
     assert 0.0 <= metrics["hit_rate"] <= 1.0
     assert 0.0 <= metrics["precision"] <= 1.0
+    assert 0.0 <= metrics["ndcg"] <= 1.0
     assert 0.0 <= metrics["coverage"] <= 1.0
     assert 0.0 <= metrics["novelty"] <= 1.0
 
@@ -143,6 +148,7 @@ def test_evaluate_item_item_cf_returns_metrics():
     assert 0 <= metrics["evaluated_users"] <= 2
     assert 0.0 <= metrics["hit_rate"] <= 1.0
     assert 0.0 <= metrics["precision"] <= 1.0
+    assert 0.0 <= metrics["ndcg"] <= 1.0
     assert 0.0 <= metrics["coverage"] <= 1.0
     assert 0.0 <= metrics["novelty"] <= 1.0
 
@@ -153,6 +159,84 @@ def test_evaluate_item_item_cf_rejects_invalid_inputs():
 
     with pytest.raises(ValueError, match="max_users must be positive or None"):
         evaluate_item_item_cf(pd.DataFrame(), pd.DataFrame(), max_users=0)
+
+
+def test_evaluate_svd_recommender_returns_metrics():
+    movies = pd.DataFrame(
+        {
+            "movieId": [10, 20, 30, 40],
+            "title": ["A", "B", "C", "D"],
+            "genres": ["Action", "Action", "Drama", "Action"],
+        }
+    )
+    ratings = pd.DataFrame(
+        {
+            "userId": [1, 1, 1, 2, 2, 2, 3, 3, 3],
+            "movieId": [10, 20, 30, 10, 20, 40, 10, 30, 40],
+            "rating": [5.0, 4.0, 2.0, 5.0, 4.0, 5.0, 4.0, 3.0, 5.0],
+            "timestamp": [1, 2, 3, 1, 2, 3, 1, 2, 3],
+        }
+    )
+
+    metrics = evaluate_svd_recommender(movies, ratings, k=2, max_users=2, n_components=2)
+
+    assert metrics["k"] == 2
+    assert 0 <= metrics["evaluated_users"] <= 2
+    assert 0.0 <= metrics["hit_rate"] <= 1.0
+    assert 0.0 <= metrics["precision"] <= 1.0
+    assert 0.0 <= metrics["ndcg"] <= 1.0
+    assert 0.0 <= metrics["coverage"] <= 1.0
+    assert 0.0 <= metrics["novelty"] <= 1.0
+
+
+def test_evaluate_svd_recommender_rejects_invalid_inputs():
+    with pytest.raises(ValueError, match="k must be positive"):
+        evaluate_svd_recommender(pd.DataFrame(), pd.DataFrame(), k=0)
+
+    with pytest.raises(ValueError, match="max_users must be positive or None"):
+        evaluate_svd_recommender(pd.DataFrame(), pd.DataFrame(), max_users=0)
+
+    with pytest.raises(ValueError, match="n_components must be positive"):
+        evaluate_svd_recommender(pd.DataFrame(), pd.DataFrame(), n_components=0)
+
+
+def test_evaluate_hybrid_recommender_returns_metrics():
+    movies = pd.DataFrame(
+        {
+            "movieId": [10, 20, 30, 40, 50],
+            "title": ["A", "B", "C", "D", "E"],
+            "genres": ["Action", "Action", "Drama", "Action", "Crime"],
+        }
+    )
+    ratings = pd.DataFrame(
+        {
+            "userId": [1, 1, 1, 2, 2, 2, 2, 3, 3, 3],
+            "movieId": [10, 20, 30, 10, 20, 40, 50, 10, 40, 50],
+            "rating": [5.0, 4.0, 2.0, 5.0, 4.0, 5.0, 4.0, 4.0, 3.0, 5.0],
+            "timestamp": [1, 2, 3, 1, 2, 3, 4, 1, 2, 3],
+        }
+    )
+
+    metrics = evaluate_hybrid_recommender(movies, ratings, k=2, max_users=2, n_components=2)
+
+    assert metrics["k"] == 2
+    assert 0 <= metrics["evaluated_users"] <= 2
+    assert 0.0 <= metrics["hit_rate"] <= 1.0
+    assert 0.0 <= metrics["precision"] <= 1.0
+    assert 0.0 <= metrics["ndcg"] <= 1.0
+    assert 0.0 <= metrics["coverage"] <= 1.0
+    assert 0.0 <= metrics["novelty"] <= 1.0
+
+
+def test_evaluate_hybrid_recommender_rejects_invalid_inputs():
+    with pytest.raises(ValueError, match="k must be positive"):
+        evaluate_hybrid_recommender(pd.DataFrame(), pd.DataFrame(), k=0)
+
+    with pytest.raises(ValueError, match="max_users must be positive or None"):
+        evaluate_hybrid_recommender(pd.DataFrame(), pd.DataFrame(), max_users=0)
+
+    with pytest.raises(ValueError, match="n_components must be positive"):
+        evaluate_hybrid_recommender(pd.DataFrame(), pd.DataFrame(), n_components=0)
 
 
 def test_compare_recommenders_returns_named_models():
@@ -174,10 +258,18 @@ def test_compare_recommenders_returns_named_models():
 
     metrics = compare_recommenders(movies, ratings, k=2, max_cf_users=1)
 
-    assert set(metrics) == {"popularity_baseline", "top_rated_baseline", "item_item_cf"}
+    assert set(metrics) == {
+        "popularity_baseline",
+        "top_rated_baseline",
+        "item_item_cf",
+        "svd_recommender",
+        "hybrid_recommender",
+    }
     assert metrics["popularity_baseline"]["k"] == 2
     assert metrics["top_rated_baseline"]["k"] == 2
     assert metrics["item_item_cf"]["k"] == 2
+    assert metrics["svd_recommender"]["k"] == 2
+    assert metrics["hybrid_recommender"]["k"] == 2
 
 
 def test_evaluate_at_k_values_returns_curve_rows():
@@ -199,6 +291,12 @@ def test_evaluate_at_k_values_returns_curve_rows():
 
     result = evaluate_at_k_values(movies, ratings, k_values=[1, 2], max_cf_users=1)
 
-    assert set(result["model"]) == {"popularity_baseline", "top_rated_baseline", "item_item_cf"}
-    assert result["k"].tolist() == [1, 1, 1, 2, 2, 2]
-    assert {"coverage", "novelty"}.issubset(result.columns)
+    assert set(result["model"]) == {
+        "popularity_baseline",
+        "top_rated_baseline",
+        "item_item_cf",
+        "svd_recommender",
+        "hybrid_recommender",
+    }
+    assert result["k"].tolist() == [1, 1, 1, 1, 1, 2, 2, 2, 2, 2]
+    assert {"ndcg", "coverage", "novelty"}.issubset(result.columns)
