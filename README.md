@@ -4,7 +4,7 @@ Streamlit-приложение с рекомендательными сцена�
 
 Проект начинается с простых baseline-подходов и подготовлен к постепенному развитию: отдельная логика загрузки данных, препроцессинг, offline-оценка, тесты и Streamlit-интерфейс.
 
-Проект сфокусирован на классическом UI рекомендательной системы и не содержит чат-интерфейса.
+Проект сфокусирован на классическом UI рекомендательной системы и содержит локальный rule-based чат без внешних API.
 
 ## Возможности
 
@@ -13,6 +13,7 @@ Streamlit-приложение с рекомендательными сцена�
 - top-rated рекомендации с минимальным порогом числа оценок;
 - поиск похожих фильмов через content-based cosine similarity;
 - персональные рекомендации по `userId`;
+- чат-страница для запросов по жанрам, годам, похожим фильмам и `userId`;
 - item-item collaborative filtering на user-item матрице;
 - персональные рекомендации через SVD-факторизацию user-item матрицы;
 - гибридные рекомендации на основе CF, SVD и популярности;
@@ -46,6 +47,20 @@ http://localhost:8501
 
 Не запускайте `app/Home.py` как обычный Python-файл. Для Streamlit нужен запуск через `streamlit run app/Home.py`.
 
+Быстрая проверка, что сервер стартует и отвечает:
+
+```bash
+make smoke
+```
+
+Если приложение открывается с другой машины или из контейнерного/удаленного окружения, запустите его на всех интерфейсах:
+
+```bash
+make run-public
+```
+
+Тогда используйте `Network URL`, который Streamlit напечатает в терминале.
+
 Если удобнее вручную, локальный запуск без `make` по-прежнему выглядит так:
 
 ```bash
@@ -54,6 +69,12 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 streamlit run app/Home.py
+```
+
+Если порт `8501` занят, задайте другой порт:
+
+```bash
+make run PORT=8502
 ```
 
 ## Запуск в Docker
@@ -94,7 +115,8 @@ models/
 │   ├── Home.py
 │   └── pages/
 │       ├── 01_Data_Overview.py
-│       └── 02_Model_Evaluation.py
+│       ├── 02_Model_Evaluation.py
+│       └── 03_Chat_Recommender.py
 ├── data/
 │   ├── raw/
 │   └── processed/
@@ -104,6 +126,8 @@ models/
 │   └── evaluate.py
 ├── src/
 │   ├── analytics.py
+│   ├── catalog.py
+│   ├── chat_recommender.py
 │   ├── collaborative.py
 │   ├── data_loader.py
 │   ├── evaluate.py
@@ -139,6 +163,8 @@ data/processed/rating_stats.parquet
 models/tfidf_vectorizer.joblib
 models/tfidf_matrix.npz
 ```
+
+Streamlit-страницы используют эти файлы автоматически: если артефакты есть и подходят к текущему каталогу, TF-IDF матрица и статистики рейтингов загружаются с диска; если нет — приложение строит их на лету.
 
 ## Offline-оценка
 

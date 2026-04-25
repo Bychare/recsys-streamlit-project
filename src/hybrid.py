@@ -83,12 +83,13 @@ def build_hybrid_artifacts(
     movies: pd.DataFrame,
     ratings: pd.DataFrame,
     n_components: int = 20,
+    rating_stats: pd.DataFrame | None = None,
 ) -> HybridArtifacts:
     """Собирает CF, SVD и popularity-артефакты в один пакет."""
     return HybridArtifacts(
         item_user=build_item_user_matrix(ratings),
         svd_recommender=build_svd_recommender(ratings, n_components=n_components),
-        rating_stats=get_item_rating_stats(ratings),
+        rating_stats=rating_stats if rating_stats is not None else get_item_rating_stats(ratings),
         popularity_ranking=_build_popularity_ranking(movies, ratings),
     )
 
@@ -151,7 +152,10 @@ def get_hybrid_recommendations_from_artifacts(
 
     user_history = ratings[ratings["userId"].astype(int) == int(user_id)].copy()
     seen_movie_ids = set(user_history["movieId"].astype(int))
-    if len(seen_movie_ids) >= len(movies):
+    candidate_movie_ids = set(movies["movieId"].astype(int))
+    if candidate_movie_ids and len(seen_movie_ids & candidate_movie_ids) >= len(
+        candidate_movie_ids
+    ):
         return _empty_recommendations()
 
     pool_size = candidate_pool_size if candidate_pool_size is not None else max(limit * 10, 100)

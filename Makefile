@@ -1,4 +1,4 @@
-.PHONY: help venv install run test artifacts evaluate docker-build docker-run compose-build compose-up compose-down compose-logs ci
+.PHONY: help venv install run run-public smoke test artifacts evaluate docker-build docker-run compose-build compose-up compose-down compose-logs ci
 
 VENV := .venv
 PYTHON := $(VENV)/bin/python
@@ -8,12 +8,15 @@ PYTEST := $(VENV)/bin/pytest
 
 IMAGE_NAME ?= recsys-streamlit
 PORT ?= 8501
+HOST ?= 127.0.0.1
 
 help:
 	@printf "Доступные команды:\n"
 	@printf "  make venv           - создать виртуальное окружение\n"
 	@printf "  make install        - установить зависимости в .venv\n"
 	@printf "  make run            - запустить Streamlit локально\n"
+	@printf "  make run-public     - запустить Streamlit на 0.0.0.0\n"
+	@printf "  make smoke          - проверить, что Streamlit отвечает health endpoint\n"
 	@printf "  make test           - запустить pytest\n"
 	@printf "  make artifacts      - собрать TF-IDF артефакты\n"
 	@printf "  make evaluate       - пересчитать offline-метрики\n"
@@ -33,7 +36,25 @@ install: venv
 	$(PIP) install -r requirements.txt
 
 run:
-	$(STREAMLIT) run app/Home.py
+	$(STREAMLIT) run app/Home.py --server.address=$(HOST) --server.port=$(PORT)
+
+run-public:
+	$(STREAMLIT) run app/Home.py --server.address=0.0.0.0 --server.port=$(PORT)
+
+smoke:
+	@log_file=$$(mktemp); \
+	$(STREAMLIT) run app/Home.py --server.headless true --server.address=127.0.0.1 --server.port=$(PORT) >$$log_file 2>&1 & \
+	pid=$$!; \
+	trap 'kill $$pid >/dev/null 2>&1 || true; rm -f $$log_file' EXIT; \
+	for _ in 1 2 3 4 5 6 7 8 9 10; do \
+		if $(PYTHON) -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:$(PORT)/_stcore/health', timeout=2).read()" >/dev/null 2>&1; then \
+			echo "Streamlit smoke: ok"; \
+			exit 0; \
+		fi; \
+		sleep 1; \
+	done; \
+	cat $$log_file; \
+	exit 1
 
 test:
 	$(PYTEST)

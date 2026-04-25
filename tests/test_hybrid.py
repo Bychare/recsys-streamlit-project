@@ -5,7 +5,11 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.hybrid import build_hybrid_artifacts, get_hybrid_recommendations
+from src.hybrid import (
+    build_hybrid_artifacts,
+    get_hybrid_recommendations,
+    get_hybrid_recommendations_from_artifacts,
+)
 
 
 @pytest.fixture
@@ -51,6 +55,23 @@ def test_get_hybrid_recommendations_combines_signals_and_excludes_seen(movies, r
     assert set(result["movieId"]).isdisjoint({1, 2, 3})
     assert "hybrid_score" in result.columns
     assert result.loc[0, "hybrid_score"] >= result.loc[len(result) - 1, "hybrid_score"]
+
+
+def test_get_hybrid_recommendations_supports_filtered_catalog(movies, ratings):
+    artifacts = build_hybrid_artifacts(movies, ratings, n_components=2)
+    filtered_movies = movies[movies["movieId"].isin([4, 5])]
+
+    result = get_hybrid_recommendations_from_artifacts(
+        user_id=1,
+        movies=filtered_movies,
+        ratings=ratings,
+        artifacts=artifacts,
+        limit=2,
+    )
+
+    assert not result.empty
+    assert set(result["movieId"]).issubset({4, 5})
+    assert set(result["movieId"]).isdisjoint({1, 2, 3})
 
 
 def test_get_hybrid_recommendations_rejects_invalid_input(movies, ratings):
